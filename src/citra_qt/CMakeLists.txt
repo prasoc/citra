@@ -2,6 +2,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/CMakeModules)
 
+include_directories(${SDL2_INCLUDE_DIR})
+
 set(SRCS
             config.cpp
             debugger/callstack.cpp
