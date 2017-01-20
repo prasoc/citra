@@ -9,9 +9,11 @@
 #include <mutex>
 #include <QGLWidget>
 #include <QThread>
+#include <SDL_events.h>	
 #include "common/thread.h"
 #include "core/frontend/emu_window.h"
 #include "core/frontend/motion_emu.h"
+
 
 class QKeyEvent;
 class QScreen;
@@ -110,7 +112,6 @@ public:
     void MakeCurrent() override;
     void DoneCurrent() override;
     void PollEvents() override;
-
     void BackupGeometry();
     void RestoreGeometry();
     void restoreGeometry(const QByteArray& geometry); // overridden
@@ -127,7 +128,12 @@ public:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
 
+    void gamepadButtonEvent(SDL_ControllerButtonEvent* event);
+    void gamepadAxisEvent(SDL_ControllerAxisEvent* event);
+
     void ReloadSetKeymaps() override;
+
+    void GamepadSetMappings();
 
     void OnClientAreaResized(unsigned width, unsigned height);
 
@@ -159,6 +165,12 @@ private:
 
     /// Motion sensors emulation
     std::unique_ptr<Motion::MotionEmu> motion_emu;
+
+    /// Gamepad ID -> Joystick mapping
+    std::vector<SDL_GameController*> gamepad_controllers;
+
+    /// Gamepad button -> keyboard maps
+    std::vector<std::tuple<SDL_GameControllerButton, int>> gamepad_mappings;
 
 protected:
     void showEvent(QShowEvent* event) override;

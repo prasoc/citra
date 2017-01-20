@@ -17,6 +17,10 @@
 #include "video_core/debug_utils/debug_utils.h"
 #include "video_core/video_core.h"
 
+// Required for SDL gamepad support
+#include <SDL.h>
+#include <SDL_events.h>
+
 EmuThread::EmuThread(GRenderWindow* render_window)
     : exec_step(false), running(false), stop_run(false), render_window(render_window) {}
 
@@ -105,6 +109,14 @@ GRenderWindow::GRenderWindow(QWidget* parent, EmuThread* emu_thread)
         Common::StringFromFormat("Citra | %s-%s", Common::g_scm_branch, Common::g_scm_desc);
     setWindowTitle(QString::fromStdString(window_title));
 
+    if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC) < 0) {
+        LOG_CRITICAL(Frontend, "Failed to initialize SDL2 gamepad! Exiting...");
+        exit(1);
+    }
+
+    GamepadSetMappings();
+
+
     keyboard_id = KeyMap::NewDeviceId();
     ReloadSetKeymaps();
 }
@@ -141,7 +153,53 @@ void GRenderWindow::DoneCurrent() {
     child->doneCurrent();
 }
 
-void GRenderWindow::PollEvents() {}
+void GRenderWindow::PollEvents() {
+    // Poll for gamepad controller button events and axis motion, maybe this should be changed into 2 calls to SDL_AddEventWatch?
+    // Might be more congruent with the rest of the code (i.e., only having one SDL event loop)
+    SDL_Event event;
+
+    while (SDL_PollEvent(&event)) {
+        switch (event.type) {
+        case SDL_CONTROLLERBUTTONUP:
+        case SDL_CONTROLLERBUTTONDOWN:
+            gamepadButtonEvent(&event.cbutton);
+            break;
+        case SDL_CONTROLLERAXISMOTION:
+            gamepadAxisEvent(&event.caxis);
+            break;
+        }
+    }
+}
+
+void GRenderWindow::GamepadSetMappings() {
+    SDL_GameControllerAddMapping("78696e70757401000000000000000000, XInput Controller, a:b0, b : b1, back : b6, dpdown : h0.4, dpleft : h0.8, dpright : h0.2, dpup : h0.1, guide : b10, leftshoulder : b4, leftstick : b8, lefttrigger : a2, leftx : a0, lefty : a1, rightshoulder : b5, rightstick : b9, righttrigger : a5, rightx : a3, righty : a4, start : b7, x : b2, y : b3, ");
+
+    gamepad_controllers = std::vector<SDL_GameController*>();
+    gamepad_mappings = std::vector<std::tuple<SDL_GameControllerButton, int>>();
+
+    gamepad_mappings.push_back(std::tuple<SDL_GameControllerButton, int>(SDL_CONTROLLER_BUTTON_A, 65));
+    gamepad_mappings.push_back(std::tuple<SDL_GameControllerButton, int>(SDL_CONTROLLER_BUTTON_B, 83));
+    gamepad_mappings.push_back(std::tuple<SDL_GameControllerButton, int>(SDL_CONTROLLER_BUTTON_X, 90));
+    gamepad_mappings.push_back(std::tuple<SDL_GameControllerButton, int>(SDL_CONTROLLER_BUTTON_Y, 88));
+
+    gamepad_mappings.push_back(std::tuple<SDL_GameControllerButton, int>(SDL_CONTROLLER_BUTTON_START, 77));
+    gamepad_mappings.push_back(std::tuple<SDL_GameControllerButton, int>(SDL_CONTROLLER_BUTTON_BACK, 78));
+
+    gamepad_mappings.push_back(std::tuple<SDL_GameControllerButton, int>(SDL_CONTROLLER_BUTTON_DPAD_DOWN, 71));
+    gamepad_mappings.push_back(std::tuple<SDL_GameControllerButton, int>(SDL_CONTROLLER_BUTTON_DPAD_LEFT, 70));
+    gamepad_mappings.push_back(std::tuple<SDL_GameControllerButton, int>(SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 72));
+    gamepad_mappings.push_back(std::tuple<SDL_GameControllerButton, int>(SDL_CONTROLLER_BUTTON_DPAD_UP, 84));
+
+    int MaxJoysticks = SDL_NumJoysticks() + 1;
+    int ControllerIndex = 0;
+    for (int JoystickIndex = 0; JoystickIndex < MaxJoysticks; ++JoystickIndex)
+    {
+        SDL_GameController* pad = SDL_GameControllerOpen(JoystickIndex);
+        SDL_Joystick* stick = SDL_JoystickOpen(JoystickIndex);
+
+        gamepad_controllers.push_back(pad);
+    }
+}
 
 // On Qt 5.0+, this correctly gets the size of the framebuffer (pixels).
 //
@@ -229,6 +287,51 @@ void GRenderWindow::mouseReleaseEvent(QMouseEvent* event) {
     else if (event->button() == Qt::RightButton)
         motion_emu->EndTilt();
 }
+
+void GRenderWindow::gamepadButtonEvent(SDL_ControllerButtonEvent* event) {
+    auto it = std::find_if(gamepad_mappings.begin(), gamepad_mappings.end(), [event](const std::tuple<SDL_GameControllerButton, int>& e) {return std::get<0>(e) == event->button; });
+
+    if (it != gamepad_mappings.end()) {
+        int keycode = std::get<1>(*it);
+
+        if (event->state == SDL_PRESSED) {
+            KeyMap::PressKey(*this, { keycode, keyboard_id });
+        } else {
+            KeyMap::ReleaseKey(*this, { keycode, keyboard_id });
+        }
+    }
+}
+
+void GRenderWindow::gamepadAxisEvent(SDL_ControllerAxisEvent* event) {
+    if (event->axis == SDL_CONTROLLER_AXIS_LEFTX) {
+        if (event->value < -8000) {
+            KeyMap::PressKey(*this, { 16777234, keyboard_id });
+        } else {
+            KeyMap::ReleaseKey(*this, { 16777234, keyboard_id });
+        }
+
+        if (event->value > 8000) {
+            KeyMap::PressKey(*this, { 16777236, keyboard_id });
+        } else {
+            KeyMap::ReleaseKey(*this, { 16777236, keyboard_id });
+        }
+    }
+
+    if (event->axis == SDL_CONTROLLER_AXIS_LEFTY) {
+        if (event->value < -8000) { 
+            KeyMap::PressKey(*this, { 16777235, keyboard_id });
+        } else {
+            KeyMap::ReleaseKey(*this, { 16777235, keyboard_id });
+        }
+
+        if (event->value > 8000) {
+            KeyMap::PressKey(*this, { 16777237, keyboard_id });
+        } else {
+            KeyMap::ReleaseKey(*this, { 16777237, keyboard_id });
+        }
+    }
+}
+
 
 void GRenderWindow::ReloadSetKeymaps() {
     KeyMap::ClearKeyMapping(keyboard_id);
